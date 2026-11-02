@@ -1,0 +1,36 @@
+# Redis only.
+#
+# PostgreSQL is NOT defined here on purpose — you already run PostgreSQL 16
+# natively on this machine and this project reuses it.
+#
+#   docker compose up -d      # start Redis
+#   docker compose down       # stop Redis (data survives in the volume)
+#   docker compose down -v    # stop and wipe queued jobs
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: whatsapp-scheduler-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    # Persist the queue to disk so delayed jobs survive a Redis restart too.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --save
+      - "60 1"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  redis-data:

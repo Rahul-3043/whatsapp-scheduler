@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MessageStatus {
+  PENDING
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  CANCELED
+}
+
+model ScheduledMessage {
+  id String @id @default(cuid())
+
+  recipientName  String
+  phoneNumber    String
+  messageContent String
+
+  /// Absolute instant the message should be sent. Always stored in UTC.
+  scheduledAt DateTime
+
+  status MessageStatus @default(PENDING)
+
+  /// Meta's wamid returned from the Cloud API. Unique so we can never
+  /// store two rows for the same outbound WhatsApp message.
+  whatsappMessageId String? @unique
+
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+
+  failureReason String?
+  attemptCount  Int      @default(0)
+
+  /// Guards against duplicate delivery of the same BullMQ job.
+  lastAttemptAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events MessageEvent[]
+
+  @@index([status, scheduledAt])
+  @@index([createdAt])
+}
+
+/// Append-only audit trail of everything that happened to a message.
+/// Also used to make webhook processing idempotent.
+model MessageEvent {
+  id        String @id @default(cuid())
+  messageId String
+
+  /// e.g. QUEUED, SEND_ATTEMPT, API_ACCEPTED, WEBHOOK_SENT, WEBHOOK_DELIVERED
+  type String
+
+  /// Provider event id (when available) — unique per message prevents
+  /// processing the same webhook twice.
+  providerEventId String?
+
+  detail Json?
+
+  createdAt DateTime @default(now())
+
+  message ScheduledMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, providerEventId])
+  @@index([messageId, createdAt])
+}
